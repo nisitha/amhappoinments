@@ -290,13 +290,13 @@ export const CandidateReviewTable: React.FC = () => {
                             Alternatives Open
                           </span>
                         ) : null
-                      ) : cand.isLocked ? (
+                      ) : (cand.submittedAt || cand.isLocked || (cand.preferences && cand.preferences.length > 0)) ? (
                         <span
                           className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ECFDF5] text-[#047857] border border-[#A7F3D0]"
-                          title={cand.submittedAt ? `Submitted & Locked: ${new Date(cand.submittedAt).toLocaleString()}` : 'Submitted & Locked'}
+                          title={cand.submittedAt ? `Preferences Saved: ${new Date(cand.submittedAt).toLocaleString()}` : 'Preferences Saved'}
                         >
-                          <Lock className="w-3 h-3 mr-1 text-[#10B981]" />
-                          Locked
+                          <CheckCircle2 className="w-3 h-3 mr-1 text-[#10B981]" />
+                          Saved ({cand.preferences?.length || 0})
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">

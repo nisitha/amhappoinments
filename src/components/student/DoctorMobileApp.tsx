@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { RotationTimelineCard } from './RotationTimelineCard';
 import { StudentResultCard } from './StudentResultCard';
+import { DoctorTeammatesSection } from './DoctorTeammatesSection';
 import { TwoTapChoiceRanker } from './TwoTapChoiceRanker';
 import { SwapCenter } from './SwapCenter';
 import { RhoAndHelpSheet } from './RhoAndHelpSheet';
@@ -24,7 +25,7 @@ import {
 type DoctorTab = 'home' | 'choices' | 'swaps' | 'help';
 
 export const DoctorMobileApp: React.FC = () => {
-  const { currentStudent, logoutStudent, activeIntake, currentStudentMilestones, isLiveSyncing } = useApp();
+  const { currentStudent, logoutStudent, activeIntake, currentStudentMilestones, isLiveSyncing, isPreferencesLocked } = useApp();
   const [activeTab, setActiveTab] = useState<DoctorTab>('home');
 
   if (!currentStudent) return null;
@@ -84,7 +85,7 @@ export const DoctorMobileApp: React.FC = () => {
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>Rotation Choices</span>
-              {currentStudent.isLocked && (
+              {isPreferencesLocked && (
                 <Lock className="w-3 h-3 text-emerald-600 ml-0.5" />
               )}
             </button>
@@ -264,13 +265,16 @@ export const DoctorMobileApp: React.FC = () => {
 
         {/* TAB 1: OVERVIEW & TIMELINE (2-Column Desktop Grid) */}
         {activeTab === 'home' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-7 space-y-6">
-              <RotationTimelineCard />
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className="lg:col-span-7 space-y-6">
+                <RotationTimelineCard />
+              </div>
+              <div className="lg:col-span-5 space-y-6">
+                <StudentResultCard />
+              </div>
             </div>
-            <div className="lg:col-span-5 space-y-6">
-              <StudentResultCard />
-            </div>
+            <DoctorTeammatesSection />
           </div>
         )}
 
@@ -327,7 +331,7 @@ export const DoctorMobileApp: React.FC = () => {
           >
             <div className={`p-1 rounded-lg relative ${activeTab === 'choices' ? 'bg-[#EEF2FF]' : ''}`}>
               <Sliders strokeWidth={activeTab === 'choices' ? 2.25 : 1.75} className="w-4 h-4" />
-              {currentStudent.isLocked && (
+              {isPreferencesLocked && (
                 <span className="w-2 h-2 rounded-full bg-emerald-500 absolute -top-0.5 -right-0.5" />
               )}
             </div>

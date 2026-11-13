@@ -206,21 +206,8 @@ function parseCandidatesFromSupabase(
         h2: pr.h2_specialty as Specialty
       }));
 
-    let isLocked = p.is_locked === true || userPrefs.some((pr) => pr.is_locked === true);
-    let submittedAt = p.submitted_at || userPrefs.find((pr) => pr.submitted_at)?.submitted_at || null;
-
-    if (!isLocked && typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(`amh_locked_pref_${p.id}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.isLocked === true) {
-            isLocked = true;
-            submittedAt = parsed.submittedAt || null;
-          }
-        }
-      } catch {}
-    }
+    const isLocked = false;
+    const submittedAt = p.submitted_at || userPrefs.find((pr) => pr.submitted_at)?.submitted_at || null;
 
     return {
       id: p.id,
@@ -229,14 +216,7 @@ function parseCandidatesFromSupabase(
       mobileNumber: p.mobile_number || '',
       intakeId: p.intake_id || 'intake-2026-nov',
       pin: p.pin,
-      preferences:
-        studentPrefs.length > 0
-          ? studentPrefs
-          : ([
-              { h1: 'Medicine', h2: 'Surgery' },
-              { h1: 'Surgery', h2: 'Medicine' },
-              { h1: 'Pediatrics', h2: 'Gyn & Obs' }
-            ] as HOPair[]),
+      preferences: studentPrefs,
       isLocked,
       submittedAt
     };
@@ -480,6 +460,8 @@ interface AppContextType {
   logoutStudent: () => void;
   currentStudent: HOCandidateInput | undefined;
   currentStudentResult: HOAllocationResult | undefined;
+  isPreferencesLocked: boolean;
+  savePreferences: (studentId: string, choices: HOPair[]) => Promise<{ success: boolean; error?: string }>;
   saveThreeChoices: (studentId: string, choices: HOPair[]) => void;
   updateStudentPreferences: (studentId: string, prefs: HOPair[]) => void;
   submitAndLockPreferences: (studentId: string, choices: HOPair[]) => Promise<{ success: boolean; error?: string }>;
@@ -1412,6 +1394,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return hoSummary.results.find((r) => r.candidateId === currentStudentId);
   }, [hoSummary, currentStudentId]);
 
+  const currentStudentAllocated = useMemo(() => {
+    const targetBatchId = currentStudent?.intakeId || activeIntakeId;
+    const store = intakeStores[targetBatchId];
+    return Boolean(store?.hoSummary && store.hoSummary.results.length > 0);
+  }, [currentStudent?.intakeId, activeIntakeId, intakeStores]);
+
+  const isPreferencesLocked = useMemo(() => {
+    return currentStudentAllocated || currentStudentIntake.status === 'closed';
+  }, [currentStudentAllocated, currentStudentIntake.status]);
+
   // Doctor Registration
   const registerStudent = (
     name: string,
@@ -1615,48 +1607,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showToast('Doctor removed from registration roster.');
   };
 
-  const saveThreeChoices = (studentId: string, choices: HOPair[]) => {
-    const candidate = allCandidates.find((c) => c.id === studentId);
-    if (candidate?.isLocked) {
-      showToast('Your choices are permanently locked and cannot be changed.');
-      return;
-    }
-
-    setAllCandidates((prev) =>
-      prev.map((c) => (c.id === studentId ? { ...c, preferences: choices } : c))
-    );
-
-    (async () => {
-      try {
-        await supabase.from('ho_preferences').delete().eq('student_id', studentId);
-        const rows = choices.map((c, idx) => ({
-          batch_id: activeIntakeId,
-          student_id: studentId,
-          preference_rank: idx + 1,
-          h1_specialty: c.h1,
-          h2_specialty: c.h2
-        }));
-        const { error } = await supabase.from('ho_preferences').insert(rows);
-        if (error) {
-          showSupabaseError('Preferences Sync Database Error', error);
-        } else {
-          showToast('Your rotation choices have been saved.', 'success');
-          notifyRealtimeChange('ho_preferences', 'saveThreeChoices');
-        }
-      } catch (err) {
-        console.error('saveThreeChoices error:', err);
-      }
-    })();
-  };
-
-  const submitAndLockPreferences = async (
+  const savePreferences = async (
     studentId: string,
     choices: HOPair[]
   ): Promise<{ success: boolean; error?: string }> => {
-    const candidate = allCandidates.find((c) => c.id === studentId);
-    if (candidate?.isLocked) {
-      showToast('Your rotation preferences are already locked.');
-      return { success: false, error: 'Preferences are already locked.' };
+    if (isPreferencesLocked) {
+      const msg = currentStudentAllocated
+        ? 'Preferences are locked because allocations have already been generated for this intake.'
+        : 'Preferences are locked because intake registration has been closed by administration.';
+      showToast(msg, 'warning');
+      return { success: false, error: msg };
+    }
+
+    if (!choices || choices.length === 0) {
+      showToast('Please select at least 1 rotation preference.', 'warning');
+      return { success: false, error: 'Empty choices' };
     }
 
     const submittedAt = new Date().toISOString();
@@ -1664,65 +1629,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAllCandidates((prev) =>
       prev.map((c) =>
         c.id === studentId
-          ? { ...c, preferences: choices, isLocked: true, submittedAt }
+          ? { ...c, preferences: choices, submittedAt }
           : c
       )
     );
 
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(
-          `amh_locked_pref_${studentId}`,
-          JSON.stringify({ isLocked: true, submittedAt, choices })
-        );
-      } catch {}
-    }
+    try {
+      const candidate = allCandidates.find((c) => c.id === studentId);
+      const targetBatchId = candidate?.intakeId || activeIntakeId;
 
-    (async () => {
-      try {
-        await supabase.from('ho_preferences').delete().eq('student_id', studentId);
-        const rowsWithLock = choices.map((c, idx) => ({
-          batch_id: activeIntakeId,
-          student_id: studentId,
-          preference_rank: idx + 1,
-          h1_specialty: c.h1,
-          h2_specialty: c.h2,
-          is_locked: true,
-          submitted_at: submittedAt
-        }));
+      await supabase.from('ho_preferences').delete().eq('student_id', studentId);
+      const rows = choices.map((c, idx) => ({
+        batch_id: targetBatchId,
+        student_id: studentId,
+        preference_rank: idx + 1,
+        h1_specialty: c.h1,
+        h2_specialty: c.h2
+      }));
 
-        const { error } = await supabase.from('ho_preferences').insert(rowsWithLock);
-        if (error) {
-          if (error.code === '42703' || error.message.includes('column')) {
-            const fallbackRows = choices.map((c, idx) => ({
-              batch_id: activeIntakeId,
-              student_id: studentId,
-              preference_rank: idx + 1,
-              h1_specialty: c.h1,
-              h2_specialty: c.h2
-            }));
-            await supabase.from('ho_preferences').insert(fallbackRows);
-          } else {
-            console.error('Supabase lock insert error:', error);
-          }
-        }
-
-        // Also update profiles table
-        try {
-          await supabase
-            .from('profiles')
-            .update({ is_locked: true, submitted_at: submittedAt })
-            .eq('id', studentId);
-        } catch {}
-
-        notifyRealtimeChange('ho_preferences', 'submitAndLockPreferences');
-      } catch (err) {
-        console.error('submitAndLockPreferences persist error:', err);
+      const { error } = await supabase.from('ho_preferences').insert(rows);
+      if (error) {
+        showSupabaseError('Preferences Save Database Error', error);
+        return { success: false, error: error.message };
       }
-    })();
 
-    showToast('Your rotation preferences have been locked and submitted.');
-    return { success: true };
+      try {
+        await supabase.from('profiles').update({ submitted_at: submittedAt }).eq('id', studentId);
+      } catch {}
+
+      showToast('Your rotation preferences have been saved successfully.', 'success');
+      notifyRealtimeChange('ho_preferences', 'savePreferences');
+      return { success: true };
+    } catch (err: unknown) {
+      console.error('savePreferences error:', err);
+      showSupabaseError('Save Preferences Runtime Error', err);
+      return { success: false, error: String(err) };
+    }
+  };
+
+  const saveThreeChoices = (studentId: string, choices: HOPair[]) => {
+    savePreferences(studentId, choices);
+  };
+
+  const submitAndLockPreferences = async (
+    studentId: string,
+    choices: HOPair[]
+  ): Promise<{ success: boolean; error?: string }> => {
+    return savePreferences(studentId, choices);
   };
 
   const unlockStudentPreferences = async (studentId: string): Promise<void> => {
@@ -2170,6 +2123,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         logoutStudent,
         currentStudent,
         currentStudentResult,
+        isPreferencesLocked,
+        savePreferences,
         saveThreeChoices,
         updateStudentPreferences,
         submitAndLockPreferences,
