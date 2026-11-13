@@ -4,7 +4,6 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { SpecialtyBadge } from '../common/SpecialtyBadge';
 import { Specialty, CORE_SPECIALTIES } from '@/lib/algorithms';
-import { AllocationResultsTable } from './AllocationResultsTable';
 import {
   Users,
   Award,
@@ -550,15 +549,6 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({ onNavigateTab }) =
       </div>
 
       {/* =========================================================================
-          PROMINENT OFFICIAL ALLOCATION RESULTS TABLE (When Generated)
-      ========================================================================= */}
-      {hoSummary && (
-        <div className="space-y-3">
-          <AllocationResultsTable />
-        </div>
-      )}
-
-      {/* =========================================================================
           ROW 3: BOTTOM 3-COLUMN BENTO GRID
           (Donut Ring lg:col-span-3, Registered HOs Table lg:col-span-6, 3 Stacked Cards lg:col-span-3)
       ========================================================================= */}
@@ -804,13 +794,24 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({ onNavigateTab }) =
               Showing <strong className="text-slate-900 font-mono">{Math.min(6, candidates.length)}</strong> of <strong className="text-slate-900 font-mono">{candidates.length}</strong> registered doctors
             </span>
 
-            <button
-              onClick={() => onNavigateTab && onNavigateTab('candidates')}
-              className="text-xs font-bold text-[#3B5BDB] hover:text-[#2B4ACB] transition flex items-center space-x-1"
-            >
-              <span>View All Registered HOs</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-3">
+              {hoSummary && (
+                <button
+                  onClick={() => onNavigateTab && onNavigateTab('groups')}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-800 transition flex items-center space-x-1"
+                >
+                  <span>View Section Groups</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('candidates')}
+                className="text-xs font-bold text-[#3B5BDB] hover:text-[#2B4ACB] transition flex items-center space-x-1"
+              >
+                <span>View All Registered HOs</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 

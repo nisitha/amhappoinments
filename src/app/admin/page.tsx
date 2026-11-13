@@ -10,6 +10,7 @@ import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminSidebar, AdminNavigationTab } from '@/components/admin/AdminSidebar';
 import { AdminSwapReview } from '@/components/admin/AdminSwapReview';
 import { RhoRotationsAdmin } from '@/components/admin/RhoRotationsAdmin';
+import { SectionGroupsView } from '@/components/admin/SectionGroupsView';
 import { GlobalNotificationToast } from '@/components/common/GlobalNotificationToast';
 import { AMH_HOSPITAL_DETAILS, calculateRotationDates } from '@/lib/utils/rotationDates';
 import {
@@ -335,6 +336,7 @@ export default function AdminPortalPage() {
             <h1 className="text-base font-bold text-[#0F172A] hidden sm:block">
               {activeTab === 'overview' && 'Overview'}
               {activeTab === 'candidates' && 'Registered HOs'}
+              {activeTab === 'groups' && 'Section Groups'}
               {activeTab === 'quotas' && 'Section Quotas'}
               {activeTab === 'swaps' && 'Mutual Swaps'}
               {activeTab === 'rho' && 'RHO Rotations'}
@@ -560,10 +562,9 @@ export default function AdminPortalPage() {
             {/* Primary Royal Indigo Generate Button (#3B5BDB) */}
             <button
               onClick={() => {
-                if (activeTab !== 'overview' && activeTab !== 'candidates') {
-                  setActiveTab('overview');
-                }
                 runHOAllocation();
+                setActiveTab('groups');
+                showToast('Allocations generated! Switched to Section Groups view.', 'success');
               }}
               className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#3B5BDB] hover:bg-[#2B4ACB] text-white text-xs font-semibold shadow-xs transition"
             >
@@ -597,6 +598,8 @@ export default function AdminPortalPage() {
                   setActiveTab('swaps');
                 } else if (tab === 'candidates') {
                   setActiveTab('candidates');
+                } else if (tab === 'groups') {
+                  setActiveTab('groups');
                 } else if (tab === 'quotas') {
                   setActiveTab('quotas');
                 } else {
@@ -606,6 +609,9 @@ export default function AdminPortalPage() {
             />
           )}
           {activeTab === 'candidates' && <CandidateReviewTable />}
+          {activeTab === 'groups' && (
+            <SectionGroupsView onNavigateTab={(t) => setActiveTab(t as AdminTab)} />
+          )}
           {activeTab === 'quotas' && <QuotaSetup />}
           {activeTab === 'swaps' && <AdminSwapReview />}
           {activeTab === 'rho' && <RhoRotationsAdmin />}

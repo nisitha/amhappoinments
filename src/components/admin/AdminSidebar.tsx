@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import {
   LayoutDashboard,
   Users,
+  Layers,
   Sliders,
   ArrowLeftRight,
   Sparkles,
@@ -19,6 +20,7 @@ import {
 export type AdminNavigationTab =
   | 'overview'
   | 'candidates'
+  | 'groups'
   | 'quotas'
   | 'swaps'
   | 'rho'
@@ -41,7 +43,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   onLogout,
   onOpenIntakeConfig
 }) => {
-  const { candidates, swapRecords, activeIntake, rotationMilestones, getRegistrationCountdown } = useApp();
+  const { candidates, swapRecords, activeIntake, rotationMilestones, getRegistrationCountdown, hoSummary } = useApp();
 
   const countdown = getRegistrationCountdown(activeIntake?.registrationClosesAt);
 
@@ -65,6 +67,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       icon: Users,
       badge: candidates.length > 0 ? candidates.length : null,
       badgeColor: 'bg-[#EEF2FF] text-[#3B5BDB]'
+    },
+    {
+      id: 'groups',
+      label: 'Section Groups',
+      icon: Layers,
+      badge: hoSummary?.grantedCount ? `${hoSummary.grantedCount} granted` : null,
+      badgeColor: 'bg-[#ECFDF5] text-[#047857]'
     },
     {
       id: 'quotas',
