@@ -1,0 +1,19 @@
+{
+  "name": "AMH Kalmunai — HO & RHO Rotation App",
+  "short_name": "AMH Rotation",
+  "description": "Ashraff Memorial Hospital (AMH), Kalmunai • Ministry of Health Sri Lanka Official House Officer & RHO Rotation Portal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F7FE",
+  "theme_color": "#5A9BF6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
