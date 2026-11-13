@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { SpecialtyBadge } from '../common/SpecialtyBadge';
 import { Specialty, CORE_SPECIALTIES } from '@/lib/algorithms';
+import { AllocationResultsTable } from './AllocationResultsTable';
 import {
   Users,
   Award,
@@ -547,6 +548,15 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({ onNavigateTab }) =
           </div>
         </div>
       </div>
+
+      {/* =========================================================================
+          PROMINENT OFFICIAL ALLOCATION RESULTS TABLE (When Generated)
+      ========================================================================= */}
+      {hoSummary && (
+        <div className="space-y-3">
+          <AllocationResultsTable />
+        </div>
+      )}
 
       {/* =========================================================================
           ROW 3: BOTTOM 3-COLUMN BENTO GRID

@@ -527,7 +527,32 @@ interface AppContextType {
   // Simulator
   loadScenario: (scenario: 'even_40' | 'odd_21' | 'remainder_42' | 'extreme_contention') => void;
   toastMessage: string | null;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
+
+  // Rich Notifications & Error Visibility
+  notifications: AppNotification[];
+  unreadNotificationCount: number;
+  activeToast: AppNotification | null;
+  markNotificationsAsRead: () => void;
+  clearNotifications: () => void;
+  dismissToast: () => void;
+  addNotification: (notif: {
+    type: 'error' | 'success' | 'warning' | 'info';
+    title: string;
+    message: string;
+    technicalDetails?: string;
+  }) => void;
+  showSupabaseError: (title: string, error: any) => void;
+}
+
+export interface AppNotification {
+  id: string;
+  type: 'error' | 'success' | 'warning' | 'info';
+  title: string;
+  message: string;
+  technicalDetails?: string;
+  timestamp: string;
+  read: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -576,15 +601,94 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [consultantPrefs, setConsultantPrefs] = useState<ConsultantPreferences[]>(SAMPLE_CONSULTANT_PREFERENCES);
   const [selectedConsultantPin, setSelectedConsultantPin] = useState<string>('1001');
 
-  // Toast
+  // Rich Notifications & Toast System
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [activeToast, setActiveToast] = useState<AppNotification | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 4000);
-  };
+  const addNotification = useCallback(
+    (notif: {
+      type: 'error' | 'success' | 'warning' | 'info';
+      title: string;
+      message: string;
+      technicalDetails?: string;
+    }) => {
+      const newNotif: AppNotification = {
+        id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        ...notif
+      };
+      setNotifications((prev) => [newNotif, ...prev.slice(0, 49)]);
+      setActiveToast(newNotif);
+      setToastMessage(newNotif.message);
+
+      if (newNotif.type !== 'error') {
+        setTimeout(() => {
+          setActiveToast((current) => (current?.id === newNotif.id ? null : current));
+          setToastMessage((current) => (current === newNotif.message ? null : current));
+        }, 5000);
+      }
+    },
+    []
+  );
+
+  const dismissToast = useCallback(() => {
+    setActiveToast(null);
+    setToastMessage(null);
+  }, []);
+
+  const markNotificationsAsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    setActiveToast(null);
+    setToastMessage(null);
+  }, []);
+
+  const showSupabaseError = useCallback(
+    (title: string, error: any) => {
+      if (!error) return;
+      const parts: string[] = [];
+      if (error.code) parts.push(`Code: ${error.code}`);
+      if (error.message) parts.push(`Message: ${error.message}`);
+      if (error.details) parts.push(`Details: ${error.details}`);
+      if (error.hint) parts.push(`Hint: ${error.hint}`);
+      const details =
+        parts.length > 0
+          ? parts.join('\n')
+          : typeof error === 'object'
+          ? JSON.stringify(error, null, 2)
+          : String(error);
+      const mainMessage = error.message || 'An unexpected database error occurred.';
+
+      console.error(`[Supabase Error] ${title}:`, error);
+      addNotification({
+        type: 'error',
+        title,
+        message: mainMessage,
+        technicalDetails: details
+      });
+    },
+    [addNotification]
+  );
+
+  const showToast = useCallback(
+    (msg: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+      addNotification({
+        type,
+        title: type === 'error' ? 'System Error' : type === 'warning' ? 'Notice' : 'Success',
+        message: msg
+      });
+    },
+    [addNotification]
+  );
+
+  const unreadNotificationCount = useMemo(() => {
+    return notifications.filter((n) => !n.read).length;
+  }, [notifications]);
 
   // Realtime & Live Sync States & References
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
@@ -992,8 +1096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (bErr) {
-          console.error('Supabase batch insert error:', bErr);
-          showToast(`Database Error: ${bErr.message}`);
+          showSupabaseError('Batch Creation Database Error', bErr);
           return;
         }
 
@@ -1017,16 +1120,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ]);
 
         if (qErr) {
-          console.error('Supabase quotas insert error:', qErr);
-          showToast(`Warning: Quotas could not be synced: ${qErr.message}`);
+          showSupabaseError('Quotas Initialization Database Warning', qErr);
         } else {
-          showToast('Intake saved to database.');
+          showToast('Intake saved to database.', 'success');
           notifyRealtimeChange('ho_batches', 'createIntake');
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('Failed to persist intake:', err);
-        showToast(`Database error: ${msg}`);
+        showSupabaseError('Create Intake Runtime Error', err);
       }
     })();
 
@@ -1100,8 +1201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .eq('id', activeIntakeId);
 
         if (bErr) {
-          console.error('Supabase batch update error:', bErr);
-          showToast(`Database Update Error: ${bErr.message}`);
+          showSupabaseError('Batch Update Database Error', bErr);
           return;
         }
 
@@ -1127,17 +1227,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ], { onConflict: 'batch_id,half' });
 
           if (qErr) {
-            console.error('Supabase quotas update error:', qErr);
-            showToast(`Quotas sync warning: ${qErr.message}`);
+            showSupabaseError('Quotas Update Database Warning', qErr);
           }
         }
 
-        showToast('Intake saved to database.');
+        showToast('Intake parameters saved to database.', 'success');
         notifyRealtimeChange('ho_batches', 'updateActiveIntake');
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('Failed to update intake:', err);
-        showToast(`Database error: ${msg}`);
+        showSupabaseError('Update Intake Runtime Error', err);
       }
     })();
   };
@@ -1263,10 +1360,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .update(updatePayload)
           .eq('id', intakeId);
         if (error) {
-          console.error('toggleIntakeStatus error:', error);
-          showToast(`Status sync error: ${error.message}`);
+          showSupabaseError('Intake Gate Status Database Error', error);
         } else {
-          showToast(`Gate status saved to database.`);
+          showToast(`Gate status saved to database.`, 'success');
           notifyRealtimeChange('ho_batches', 'toggleIntakeStatus');
         }
       } catch (err) {
@@ -1418,8 +1514,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (profErr) {
-          console.error('Supabase profile registration error:', profErr);
-          showToast(`Profile sync error: ${profErr.message}`);
+          showSupabaseError('Doctor Registration Database Error', profErr);
           return;
         }
 
@@ -1543,10 +1638,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         const { error } = await supabase.from('ho_preferences').insert(rows);
         if (error) {
-          console.error('Supabase save preferences error:', error);
-          showToast(`Preferences sync error: ${error.message}`);
+          showSupabaseError('Preferences Sync Database Error', error);
         } else {
-          showToast('Your 3 rotation choices have been saved.');
+          showToast('Your rotation choices have been saved.', 'success');
           notifyRealtimeChange('ho_preferences', 'saveThreeChoices');
         }
       } catch (err) {
@@ -1729,7 +1823,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         origin: { y: 0.6 }
       });
 
-      showToast(`Rotations Assigned: ${summary.grantedCount} Confirmed, ${summary.alternativesAvailableCount} with Alternatives.`);
+      showToast(
+        `Rotations Assigned: ${summary.grantedCount} Confirmed, ${summary.alternativesAvailableCount} with Alternatives.`,
+        'success'
+      );
+
+      // Smooth scroll the official results table into view
+      setTimeout(() => {
+        if (typeof document !== 'undefined') {
+          const el = document.getElementById('official-allocation-results');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      }, 350);
 
       // Persist allocations to Supabase
       (async () => {
@@ -1748,8 +1855,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }));
           const { error } = await supabase.from('ho_allocations').insert(rows);
           if (error) {
-            console.error('Supabase allocations insert error:', error);
-            showToast(`Allocations sync error: ${error.message}`);
+            showSupabaseError('Allocations Database Synchronization Failed', error);
           } else {
             notifyRealtimeChange('ho_allocations', 'runHOAllocation');
           }
@@ -1759,7 +1865,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      showToast(`Allocation Error: ${message}`);
+      addNotification({
+        type: 'error',
+        title: 'Allocation Algorithm Exception',
+        message,
+        technicalDetails: err instanceof Error ? err.stack : String(err)
+      });
     }
   };
 
@@ -2092,7 +2203,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Simulator
         loadScenario,
         toastMessage,
-        showToast
+        showToast,
+
+        // Rich Notifications & Error Visibility
+        notifications,
+        unreadNotificationCount,
+        activeToast,
+        markNotificationsAsRead,
+        clearNotifications,
+        dismissToast,
+        addNotification,
+        showSupabaseError
       }}
     >
       {children}

@@ -10,6 +10,7 @@ import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminSidebar, AdminNavigationTab } from '@/components/admin/AdminSidebar';
 import { AdminSwapReview } from '@/components/admin/AdminSwapReview';
 import { RhoRotationsAdmin } from '@/components/admin/RhoRotationsAdmin';
+import { GlobalNotificationToast } from '@/components/common/GlobalNotificationToast';
 import { AMH_HOSPITAL_DETAILS, calculateRotationDates } from '@/lib/utils/rotationDates';
 import {
   Lock,
@@ -54,7 +55,11 @@ export default function AdminPortalPage() {
     createIntake,
     deleteIntake,
     isLiveSyncing,
-    getRegistrationCountdown
+    getRegistrationCountdown,
+    notifications,
+    unreadNotificationCount,
+    markNotificationsAsRead,
+    clearNotifications
   } = useApp();
 
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
@@ -66,6 +71,7 @@ export default function AdminPortalPage() {
   const [showIntakeConfigModal, setShowIntakeConfigModal] = useState<boolean>(false);
   const [intakeModalMode, setIntakeModalMode] = useState<'edit' | 'new'>('edit');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [showNotificationDrawer, setShowNotificationDrawer] = useState<boolean>(false);
 
   // Form state for Intake Config modal
   const [intakeName, setIntakeName] = useState(activeIntake.name);
@@ -432,14 +438,115 @@ export default function AdminPortalPage() {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none" />
             </div>
 
-            {/* Notification Bell with Coral Dot */}
-            <button
-              className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-500 hover:text-slate-900 transition relative"
-              title="Notifications"
-            >
-              <Bell strokeWidth={1.8} className="w-4 h-4 text-slate-500" />
-              <span className="w-2 h-2 rounded-full bg-[#F43F5E] absolute top-1.5 right-1.5 ring-2 ring-white" />
-            </button>
+            {/* Notification Bell with Badge & Activity Drawer */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNotificationDrawer(!showNotificationDrawer);
+                  if (!showNotificationDrawer) {
+                    markNotificationsAsRead();
+                  }
+                }}
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-500 hover:text-slate-900 transition relative"
+                title="Notifications & System Events"
+              >
+                <Bell strokeWidth={1.8} className="w-4 h-4 text-slate-500" />
+                {unreadNotificationCount > 0 ? (
+                  <span className="min-w-4 h-4 px-1 rounded-full bg-[#F43F5E] text-white text-[9px] font-bold flex items-center justify-center absolute -top-1 -right-1 ring-2 ring-white animate-pulse">
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                ) : (
+                  notifications.length > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 absolute top-1.5 right-1.5 ring-2 ring-white" />
+                  )
+                )}
+              </button>
+
+              {/* Flyout Drawer / Dropdown */}
+              {showNotificationDrawer && (
+                <div className="absolute right-0 top-10 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                  <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Bell className="w-4 h-4 text-[#3B5BDB]" />
+                      <h4 className="text-xs font-bold text-slate-900">System Activity &amp; Errors</h4>
+                      {unreadNotificationCount > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#F43F5E] text-white">
+                          {unreadNotificationCount} new
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {notifications.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={clearNotifications}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 transition"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowNotificationDrawer(false)}
+                        className="text-slate-400 hover:text-slate-700 p-0.5"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1.5" />
+                        <span className="font-semibold text-slate-700 block">No System Notifications</span>
+                        <span className="text-[11px] text-slate-400">All database queries and runtime events healthy.</span>
+                      </div>
+                    ) : (
+                      notifications.map((n) => (
+                        <div key={n.id} className="p-2.5 hover:bg-slate-50/80 transition text-xs space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                n.type === 'error'
+                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                  : n.type === 'warning'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : n.type === 'success'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}
+                            >
+                              {n.type}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {new Date(n.timestamp).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          <div className="font-semibold text-slate-900 text-xs">{n.title}</div>
+                          <div className="text-slate-600 text-[11px] leading-relaxed break-words">{n.message}</div>
+                          {n.technicalDetails && (
+                            <details className="mt-1">
+                              <summary className="text-[10px] font-semibold text-[#3B5BDB] cursor-pointer hover:underline">
+                                View Technical Details
+                              </summary>
+                              <pre className="mt-1 p-2 rounded bg-slate-900 text-red-300 text-[10px] font-mono leading-tight whitespace-pre-wrap max-h-32 overflow-y-auto select-all">
+                                {n.technicalDetails}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Export CSV Secondary Button */}
             <button
@@ -452,7 +559,12 @@ export default function AdminPortalPage() {
 
             {/* Primary Royal Indigo Generate Button (#3B5BDB) */}
             <button
-              onClick={runHOAllocation}
+              onClick={() => {
+                if (activeTab !== 'overview' && activeTab !== 'candidates') {
+                  setActiveTab('overview');
+                }
+                runHOAllocation();
+              }}
               className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#3B5BDB] hover:bg-[#2B4ACB] text-white text-xs font-semibold shadow-xs transition"
             >
               <Zap className="w-3.5 h-3.5 fill-current text-white" />
@@ -826,13 +938,8 @@ export default function AdminPortalPage() {
         </div>
       )}
 
-      {/* Global Toast */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-2 px-3.5 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-semibold shadow-md animate-bounce border border-slate-800">
-          <CheckCircle2 className="w-4 h-4 text-[#10B981] shrink-0" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+      {/* Global Rich Notification Toast Banner */}
+      <GlobalNotificationToast />
     </div>
   );
 }
