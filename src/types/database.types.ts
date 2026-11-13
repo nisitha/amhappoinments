@@ -65,6 +65,7 @@ export interface Database {
           total_hos?: number;
           total_students: number;
           status: BatchStatus;
+          registration_closes_at?: string;
           created_at: string;
           updated_at: string;
         };
@@ -76,6 +77,7 @@ export interface Database {
           total_hos?: number;
           total_students?: number;
           status?: BatchStatus;
+          registration_closes_at?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -87,6 +89,7 @@ export interface Database {
           total_hos?: number;
           total_students?: number;
           status?: BatchStatus;
+          registration_closes_at?: string;
           created_at?: string;
           updated_at?: string;
         };

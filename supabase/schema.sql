@@ -22,12 +22,16 @@ create table if not exists public.ho_batches (
   total_hos integer not null default 40 check (total_hos > 0),
   total_students integer not null default 40 check (total_students > 0),
   status text not null default 'open' check (status in ('open', 'closed', 'registration_open', 'allocated', 'swap_window_open', 'finalized')),
+  registration_closes_at timestamptz not null default (now() + interval '48 hours'),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 -- Index for active intake lookups
 create index if not exists idx_ho_batches_status on public.ho_batches (status);
+
+-- Idempotent column addition for 48-hour auto-lock registration window
+alter table public.ho_batches add column if not exists registration_closes_at timestamptz default (now() + interval '48 hours');
 
 -- =========================================================================
 -- 2. Profiles & Student Self-Registration
@@ -319,35 +323,11 @@ create policy "Allow read on rho_unit_allocations" on public.rho_unit_allocation
 create policy "Allow manage on rho_unit_allocations" on public.rho_unit_allocations for all using (true) with check (true);
 
 -- =========================================================================
--- SEED DATA: AMH KALMUNAI INITIAL INTAKES & CLINICAL UNITS
+-- SEED DATA: AMH KALMUNAI CLINICAL UNITS & CONSULTANTS (STAGE 3)
+-- (Note: No dummy intakes are pre-seeded; intakes are cleanly created by Admin)
 -- =========================================================================
 
--- 1. Default Appointment Intakes
-insert into public.ho_batches (id, name, academic_year, appointment_start_date, total_hos, total_students, status)
-values
-  ('intake-2026-nov', '2026 November Intake', '2026/2027', '2026-12-17', 40, 40, 'open'),
-  ('intake-2026-may', '2026 May Intake', '2026/2027', '2027-05-15', 24, 24, 'open')
-on conflict (id) do update set
-  name = excluded.name,
-  appointment_start_date = excluded.appointment_start_date,
-  total_hos = excluded.total_hos,
-  total_students = excluded.total_students,
-  status = excluded.status;
-
--- 2. Section Capacities (H1 and H2) for 2026 November Intake (N = 40)
-insert into public.ho_quotas (id, batch_id, half, medicine, surgery, pediatrics, gyn_obs)
-values
-  ('q-nov-h1', 'intake-2026-nov', 'H1', 10, 10, 10, 10),
-  ('q-nov-h2', 'intake-2026-nov', 'H2', 10, 10, 10, 10),
-  ('q-may-h1', 'intake-2026-may', 'H1', 6, 6, 6, 6),
-  ('q-may-h2', 'intake-2026-may', 'H2', 6, 6, 6, 6)
-on conflict (id) do update set
-  medicine = excluded.medicine,
-  surgery = excluded.surgery,
-  pediatrics = excluded.pediatrics,
-  gyn_obs = excluded.gyn_obs;
-
--- 3. AMH Kalmunai Clinical Units & Supervising Consultants (Stage 3)
+-- AMH Kalmunai Clinical Units & Supervising Consultants (Stage 3)
 insert into public.rho_units (id, unit_name, specialty, consultant_name, capacity, magic_pin)
 values
   ('unit-med-1', 'Medical Ward 1 (Male & ICU Stepdown)', 'Medicine', 'Dr. M. R. Farook (Consultant Physician)', 1, '1001'),
@@ -364,38 +344,6 @@ on conflict (id) do update set
   consultant_name = excluded.consultant_name,
   capacity = excluded.capacity,
   magic_pin = excluded.magic_pin;
-
--- =========================================================================
--- 13. REALTIME PUBLICATION & REPLICA IDENTITY (IDEMPOTENT)
--- =========================================================================
-do $$
-declare
-  tbl text;
-begin
-  for tbl in select unnest(array[
-    'ho_batches',
-    'profiles',
-    'ho_quotas',
-    'ho_preferences',
-    'ho_allocations',
-    'ho_swap_requests',
-    'rho_batches',
-    'rho_units',
-    'consultant_selections',
-    'rho_unit_preferences',
-    'rho_unit_allocations'
-  ]) loop
-    execute format('alter table public.%I replica identity full;', tbl);
-    if not exists (
-      select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = tbl
-    ) then
-      execute format('alter publication supabase_realtime add table public.%I;', tbl);
-    end if;
-  end loop;
-end;
-$$;
-
 
 -- =========================================================================
 -- 13. REALTIME PUBLICATION & REPLICA IDENTITY (IDEMPOTENT)

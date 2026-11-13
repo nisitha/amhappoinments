@@ -88,6 +88,7 @@ export interface Intake {
   appointmentStartDate: string; // '2026-11-16'
   totalHOs: number; // e.g., 40
   status: 'open' | 'closed'; // 'open' allows doctor registration
+  registrationClosesAt?: string; // ISO string e.g. 2026-11-18T10:00:00.000Z (48-hour auto-lock)
   createdAt: string;
 }
 

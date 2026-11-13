@@ -28,7 +28,8 @@ import {
   Settings2,
   Plus,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 
 const CONFIGURED_ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || '2026';
@@ -52,7 +53,8 @@ export default function AdminPortalPage() {
     updateActiveIntake,
     createIntake,
     deleteIntake,
-    isLiveSyncing
+    isLiveSyncing,
+    getRegistrationCountdown
   } = useApp();
 
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
@@ -86,6 +88,11 @@ export default function AdminPortalPage() {
   const modalMilestones = useMemo(() => {
     return calculateRotationDates(intakeDate);
   }, [intakeDate]);
+
+  // Live registration countdown for active intake
+  const registrationCountdown = useMemo(() => {
+    return getRegistrationCountdown(activeIntake?.registrationClosesAt);
+  }, [getRegistrationCountdown, activeIntake?.registrationClosesAt]);
 
   // Check existing session (asynchronous notification to avoid react-hooks/set-state-in-effect)
   useEffect(() => {
@@ -363,6 +370,35 @@ export default function AdminPortalPage() {
               />
               <span className="capitalize">{activeIntake.status === 'open' ? 'Gate Open' : 'Gate Closed'}</span>
             </button>
+
+            {/* Live Auto-Lock Countdown Badge */}
+            {activeIntake.status === 'open' && (
+              <div
+                className={`hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition shadow-2xs ${
+                  registrationCountdown.isExpired
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}
+                title={
+                  registrationCountdown.isExpired
+                    ? 'Registration has auto-locked because the 48-hour registration window has elapsed.'
+                    : `Registration auto-locks at ${
+                        activeIntake.registrationClosesAt
+                          ? new Date(activeIntake.registrationClosesAt).toLocaleString()
+                          : '48h from creation'
+                      }`
+                }
+              >
+                {registrationCountdown.isExpired ? (
+                  <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                ) : (
+                  <Clock className="w-3 h-3 text-emerald-600 shrink-0" />
+                )}
+                <span className="truncate max-w-[200px]">
+                  {registrationCountdown.text}
+                </span>
+              </div>
+            )}
 
             {/* Live Sync Status Indicator */}
             <div

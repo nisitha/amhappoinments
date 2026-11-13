@@ -41,7 +41,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   onLogout,
   onOpenIntakeConfig
 }) => {
-  const { candidates, swapRecords, activeIntake, rotationMilestones } = useApp();
+  const { candidates, swapRecords, activeIntake, rotationMilestones, getRegistrationCountdown } = useApp();
+
+  const countdown = getRegistrationCountdown(activeIntake?.registrationClosesAt);
 
   const pendingSwaps = swapRecords.filter((s) => s.status === 'pending').length;
 
@@ -207,7 +209,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 Active Intake
               </span>
               <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-white/20 text-white uppercase tracking-wider">
-                {activeIntake.status === 'open' ? 'Open' : 'Closed'}
+                {activeIntake.status === 'open'
+                  ? countdown.isExpired
+                    ? 'Locked (48h)'
+                    : 'Open'
+                  : 'Closed'}
               </span>
             </div>
 

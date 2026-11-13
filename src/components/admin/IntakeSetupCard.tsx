@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { calculateRotationDates } from '@/lib/utils/rotationDates';
-import { Calendar, Users, Plus, Check, Clock, ChevronRight } from 'lucide-react';
+import { Calendar, Users, Plus, Check, Clock, ChevronRight, Lock } from 'lucide-react';
 
 export const IntakeSetupCard: React.FC = () => {
   const {
@@ -13,11 +13,16 @@ export const IntakeSetupCard: React.FC = () => {
     createIntake,
     intakes,
     switchIntake,
-    toggleIntakeStatus
+    toggleIntakeStatus,
+    getRegistrationCountdown
   } = useApp();
 
   const [isEditing, setIsEditing] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
+
+  const countdown = useMemo(() => {
+    return getRegistrationCountdown(activeIntake?.registrationClosesAt);
+  }, [getRegistrationCountdown, activeIntake?.registrationClosesAt]);
 
   // Form state for active intake editing
   const [name, setName] = useState(activeIntake.name);
@@ -69,13 +74,21 @@ export const IntakeSetupCard: React.FC = () => {
 
             {/* Subtle Clinical Status Dot Indicator */}
             {isOpen ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Open for HO Registration</span>
-              </span>
+              countdown.isExpired ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  <span>Locked (48h Window Expired)</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <Clock className="w-3 h-3 text-emerald-600" />
+                  <span>{countdown.text}</span>
+                </span>
+              )
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                <Lock className="w-3 h-3 text-slate-500" />
                 <span>Registration Closed</span>
               </span>
             )}

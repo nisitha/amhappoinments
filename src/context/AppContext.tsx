@@ -65,24 +65,60 @@ export interface SwapRecord {
   createdAt: string;
 }
 
-export const INITIAL_INTAKES: Intake[] = [
-  {
-    id: 'intake-2026-nov',
-    name: '2026 November Intake',
-    appointmentStartDate: '2026-11-16',
-    totalHOs: 40,
-    status: 'open',
-    createdAt: '2026-11-01'
-  },
-  {
-    id: 'intake-2026-may',
-    name: '2026 May Intake',
-    appointmentStartDate: '2026-05-15',
-    totalHOs: 24,
-    status: 'closed',
-    createdAt: '2026-05-01'
+// Clean starting intakes (no pre-seeded dummy batches)
+export const INITIAL_INTAKES: Intake[] = [];
+
+/**
+ * Validates whether an intake is currently open for new doctor registration:
+ * 1. Intake status is 'open' (not manually closed by Admin)
+ * 2. Strictly within the 48-hour auto-lock registration window from creation/re-arm
+ * 3. Registered candidate count is under the intake's total_hos capacity
+ */
+export function isIntakeOpenForRegistration(
+  intake: Intake | undefined | null,
+  registeredCount = 0
+): boolean {
+  if (!intake) return false;
+  if (intake.status !== 'open') return false;
+  if (intake.totalHOs > 0 && registeredCount >= intake.totalHOs) return false;
+  if (intake.registrationClosesAt) {
+    const closesAt = new Date(intake.registrationClosesAt).getTime();
+    if (!isNaN(closesAt) && Date.now() >= closesAt) {
+      return false; // 48-hour registration window expired!
+    }
   }
-];
+  return true;
+}
+
+/**
+ * Calculates countdown status string and remaining time for an intake's registration window
+ */
+export function getRegistrationCountdown(registrationClosesAt?: string): {
+  isExpired: boolean;
+  text: string;
+  shortText: string;
+  remainingMs: number;
+} {
+  if (!registrationClosesAt) {
+    return { isExpired: false, text: 'No Auto-Lock Set', shortText: 'Open', remainingMs: Infinity };
+  }
+  const closesAt = new Date(registrationClosesAt).getTime();
+  if (isNaN(closesAt)) {
+    return { isExpired: false, text: 'No Auto-Lock Set', shortText: 'Open', remainingMs: Infinity };
+  }
+  const remainingMs = closesAt - Date.now();
+  if (remainingMs <= 0) {
+    return { isExpired: true, text: 'Locked (48h Window Expired)', shortText: 'Window Expired', remainingMs: 0 };
+  }
+  const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+  const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+  return {
+    isExpired: false,
+    text: `Open • Auto-locks in ${hours}h ${minutes}m`,
+    shortText: `${hours}h ${minutes}m left`,
+    remainingMs
+  };
+}
 
 // Supabase row mapping & parsing helpers
 function mapBatchRowToIntake(row: {
@@ -92,15 +128,20 @@ function mapBatchRowToIntake(row: {
   total_hos?: number;
   total_students?: number;
   status?: string;
+  registration_closes_at?: string;
   created_at?: string;
 }): Intake {
+  const createdAt = row.created_at || new Date().toISOString();
+  // Default to 48 hours from creation if registration_closes_at is not recorded
+  const defaultClose = new Date(new Date(createdAt).getTime() + 48 * 60 * 60 * 1000).toISOString();
   return {
     id: row.id,
     name: row.name,
     appointmentStartDate: row.appointment_start_date || '2026-11-16',
     totalHOs: row.total_hos || row.total_students || 40,
     status: row.status === 'open' || row.status === 'registration_open' ? 'open' : 'closed',
-    createdAt: row.created_at || new Date().toISOString()
+    registrationClosesAt: row.registration_closes_at || defaultClose,
+    createdAt
   };
 }
 
@@ -397,6 +438,8 @@ interface AppContextType {
   isDbLoaded: boolean;
   rotationMilestones: RotationMilestoneDates;
   currentStudentMilestones: RotationMilestoneDates;
+  isIntakeOpenForRegistration: typeof isIntakeOpenForRegistration;
+  getRegistrationCountdown: typeof getRegistrationCountdown;
   createIntake: (name: string, appointmentStartDate: string, totalHOs: number, status: 'open' | 'closed') => Intake;
   updateActiveIntake: (updates: Partial<Intake>) => void;
   deleteIntake: (intakeId: string) => { success: boolean; remainingCount: number; error?: string };
@@ -715,13 +758,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshAllDataFromDb, triggerDebouncedSync]);
 
   // Derive active intake object
-  const activeIntake = useMemo(() => {
-    return intakes.find((it) => it.id === activeIntakeId) || intakes[0] || INITIAL_INTAKES[0];
+  const activeIntake = useMemo<Intake>(() => {
+    const found = intakes.find((it) => it.id === activeIntakeId);
+    if (found) return found;
+    if (intakes.length > 0) return intakes[0];
+    return {
+      id: 'none',
+      name: 'No Intake Configured',
+      appointmentStartDate: '2026-12-17',
+      totalHOs: 0,
+      status: 'closed',
+      registrationClosesAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
   }, [intakes, activeIntakeId]);
 
+  // Only intakes that are genuinely open (status open + within 48h + under capacity)
   const openIntakes = useMemo(() => {
-    return intakes.filter((it) => it.status === 'open');
-  }, [intakes]);
+    return intakes.filter((it) => {
+      const count = allCandidates.filter((c) => (c.intakeId || 'none') === it.id).length;
+      return isIntakeOpenForRegistration(it, count);
+    });
+  }, [intakes, allCandidates]);
 
   // Calculate rotation dates for active intake
   const rotationMilestones = useMemo(() => {
@@ -881,12 +939,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     status: 'open' | 'closed'
   ): Intake => {
     const newId = `intake-${Date.now()}`;
+    // 48-Hour (2-Day) exact window from creation
+    const registrationClosesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     const newIntake: Intake = {
       id: newId,
       name: name.trim() || `Intake Starting ${appointmentStartDate}`,
       appointmentStartDate,
       totalHOs,
       status,
+      registrationClosesAt,
       createdAt: new Date().toISOString()
     };
 
@@ -926,7 +987,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           appointment_start_date: appointmentStartDate,
           total_hos: totalHOs,
           total_students: totalHOs,
-          status
+          status,
+          registration_closes_at: registrationClosesAt
         });
 
         if (bErr) {
@@ -1020,6 +1082,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           total_hos?: number;
           total_students?: number;
           status?: string;
+          registration_closes_at?: string;
         } = { updated_at: new Date().toISOString() };
 
         if (updates.name !== undefined) payload.name = updates.name.trim();
@@ -1029,6 +1092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           payload.total_students = updates.totalHOs;
         }
         if (updates.status !== undefined) payload.status = updates.status;
+        if (updates.registrationClosesAt !== undefined) payload.registration_closes_at = updates.registrationClosesAt;
 
         const { error: bErr } = await supabase
           .from('ho_batches')
@@ -1151,20 +1215,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const toggleIntakeStatus = (intakeId: string) => {
     let nextStatus: 'open' | 'closed' = 'open';
+    let nextClosesAt: string | undefined = undefined;
+
     setIntakes((prev) =>
       prev.map((it) => {
         if (it.id !== intakeId) return it;
-        nextStatus = it.status === 'open' ? 'closed' : 'open';
-        showToast(`${it.name} is now ${nextStatus === 'open' ? 'OPEN for Registration' : 'CLOSED'}.`);
-        return { ...it, status: nextStatus };
+        if (it.status === 'open') {
+          nextStatus = 'closed';
+          nextClosesAt = it.registrationClosesAt;
+        } else {
+          nextStatus = 'open';
+          // If window has already expired or is missing, re-arm with fresh 48-hour registration window
+          const currentClose = it.registrationClosesAt ? new Date(it.registrationClosesAt).getTime() : 0;
+          if (!currentClose || isNaN(currentClose) || Date.now() >= currentClose) {
+            nextClosesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+          } else {
+            nextClosesAt = it.registrationClosesAt;
+          }
+        }
+        showToast(
+          `${it.name} is now ${nextStatus === 'open' ? 'OPEN for Registration (48h Window)' : 'CLOSED'}.`
+        );
+        return {
+          ...it,
+          status: nextStatus,
+          ...(nextClosesAt ? { registrationClosesAt: nextClosesAt } : {})
+        };
       })
     );
 
     (async () => {
       try {
+        const updatePayload: {
+          status: 'open' | 'closed';
+          updated_at: string;
+          registration_closes_at?: string;
+        } = {
+          status: nextStatus,
+          updated_at: new Date().toISOString()
+        };
+        if (nextClosesAt) {
+          updatePayload.registration_closes_at = nextClosesAt;
+        }
+
         const { error } = await supabase
           .from('ho_batches')
-          .update({ status: nextStatus, updated_at: new Date().toISOString() })
+          .update(updatePayload)
           .eq('id', intakeId);
         if (error) {
           console.error('toggleIntakeStatus error:', error);
@@ -1235,10 +1331,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Target appointment intake was not found.' };
     }
 
-    if (targetIntake.status !== 'open') {
+    // Enforce registered headcount cap
+    const registeredCount = allCandidates.filter(
+      (c) => (c.intakeId || 'none') === targetIntakeId
+    ).length;
+
+    // Strict 48-Hour & Open Gate Validation
+    if (!isIntakeOpenForRegistration(targetIntake, registeredCount)) {
+      if (targetIntake.status !== 'open') {
+        return {
+          success: false,
+          error: `Registration is currently CLOSED for ${targetIntake.name}. Please contact AMH Kalmunai administration.`
+        };
+      }
+      if (targetIntake.registrationClosesAt && Date.now() >= new Date(targetIntake.registrationClosesAt).getTime()) {
+        return {
+          success: false,
+          error: `Registration for ${targetIntake.name} has LOCKED. The 48-hour registration window has expired. If you are already registered, please sign in with your PIN.`
+        };
+      }
+      if (targetIntake.totalHOs > 0 && registeredCount >= targetIntake.totalHOs) {
+        return {
+          success: false,
+          error: `This intake has reached its maximum capacity of ${targetIntake.totalHOs} House Officers. Please contact AMH Kalmunai Administration.`
+        };
+      }
       return {
         success: false,
-        error: `Registration is currently CLOSED for ${targetIntake.name}. Please contact AMH Kalmunai administration.`
+        error: `Registration is not open for ${targetIntake.name}.`
       };
     }
 
@@ -1247,17 +1367,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         error: 'Please enter a valid Merit Rank (1 or greater).'
-      };
-    }
-
-    // Enforce total_hos as the registration headcount cap
-    const registeredCount = allCandidates.filter(
-      (c) => (c.intakeId || 'intake-2026-nov') === targetIntakeId
-    ).length;
-    if (registeredCount >= targetIntake.totalHOs) {
-      return {
-        success: false,
-        error: `This intake has reached its maximum capacity of ${targetIntake.totalHOs} House Officers. Please contact AMH Kalmunai Administration.`
       };
     }
     if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
@@ -1918,6 +2027,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isDbLoaded,
         rotationMilestones,
         currentStudentMilestones,
+        isIntakeOpenForRegistration,
+        getRegistrationCountdown,
         createIntake,
         updateActiveIntake,
         deleteIntake,
